@@ -12,6 +12,8 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-define(value(Key,Config), proplists:get_value(Key,Config)).
+
 %%--------------------------------------------------------------------
 %% @spec suite() -> Info
 %% Info = [tuple()]
@@ -29,7 +31,11 @@ suite() ->
 %%--------------------------------------------------------------------
 init_per_suite(Config) ->
     application:start(chat_server),
-    Config.
+    Timeout = 2000,
+    Host = "localhost",
+    Port = 6667,
+    Opts = [binary, {packet, 0}, {active, false}],
+    [{timeout, Timeout}, {host, Host}, {port, Port}, {opts, Opts} | Config].
 
 %%--------------------------------------------------------------------
 %% @spec end_per_suite(Config0) -> void() | {save_config,Config1}
@@ -107,7 +113,7 @@ groups() ->
 %% Reason = term()
 %% @end
 %%--------------------------------------------------------------------
-all() -> 
+all() ->
     [join_and_send].
 
 %%--------------------------------------------------------------------
@@ -115,7 +121,7 @@ all() ->
 %% Info = [tuple()]
 %% @end
 %%--------------------------------------------------------------------
-join_and_send() -> 
+join_and_send() ->
     [].
 
 %%--------------------------------------------------------------------
@@ -127,18 +133,45 @@ join_and_send() ->
 %% Comment = term()
 %% @end
 %%--------------------------------------------------------------------
-join_and_send(_Config) -> 
-    Timeout = 3000,
-    Host = "localhost",
-    Port = 6667,
-    Opts = [binary, {packet, 0}, {active, false}],
+join_and_send(Config) ->
     Name = <<"Alice">>,
-    {ok, Alice} = gen_tcp:connect(Host, Port, Opts),
-    gen_tcp:send(Alice, term_to_binary({join, Name})),
+    Alice = join(Name, Config),
+
     Msg = <<"hello">>,
-    gen_tcp:send(Alice, term_to_binary({msg, Msg})),
-    {ok, B} = gen_tcp:recv(Alice, 0, Timeout),
-    
-    ct:pal("Received: ~p~n", [B]),
+    say(Alice, Msg, Config),
+    _B = receive_msg(Alice, Config),
+
+    %% assert_is_say(Alice, Msg)
+
+    leave(Alice, Config),
     gen_tcp:close(Alice),
     ok.
+
+%%--------------------------------------------------------------------
+%% helper functions
+%%--------------------------------------------------------------------
+
+encode(Msg) ->
+    term_to_binary(Msg).
+
+decode(Bin) ->
+    binary_to_term(Bin).
+
+join(Name, C) ->
+    {ok, Socket} = gen_tcp:connect(?value(host, C),
+                                   ?value(port, C),
+                                   ?value(opts, C)),
+    gen_tcp:send(Socket, encode({join, Name})),
+    ok = receive_msg(Socket, C),
+    Socket.
+
+leave(Socket, _C) ->
+    gen_tcp:send(Socket, encode({leave})),
+    ok.
+
+say(Socket, Msg, _C) ->
+    gen_tcp:send(Socket, encode({say, Msg})).
+
+receive_msg(Socket, C) ->
+    {ok, Result} = gen_tcp:recv(Socket, 0, ?value(timeout, C)),
+    decode(Result).

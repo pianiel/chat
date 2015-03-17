@@ -20,10 +20,11 @@
 -define(SERVER, ?MODULE).
 
 -type socket() :: gen_tcp:socket().
--type client_state() :: joined | ok.
+-type client_state() :: joined | connected.
 
 -record(state, {listener :: pid(),
                 listener_socket :: socket(),
+                client_name :: binary(),
                 client_state :: client_state()}).
 
 %%%===================================================================
@@ -41,15 +42,15 @@ start_link([Socket]) ->
 
     io:format("starting client_handler~n"),
 
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Socket], []).
+    gen_server:start_link(?MODULE, [Socket], []).
 
 
 receive_from_client(Pid, BinaryMessage) ->
     gen_server:cast(Pid, {recv, BinaryMessage}).
 
 
-send_to_client(Pid, BinaryMessage) ->
-    gen_server:cast(Pid, {send, BinaryMessage}).
+send_to_client(Pid, Message) ->
+    gen_server:cast(Pid, {send, Message}).
 
 
 %%%===================================================================
@@ -69,7 +70,8 @@ send_to_client(Pid, BinaryMessage) ->
 %%--------------------------------------------------------------------
 init([Socket]) ->
     process_flag(trap_exit, true),
-    Pid = spawn_link(fun() -> receive_message(Socket, self()) end),
+    Myself = self(),
+    Pid = spawn_link(fun() -> receive_message(Socket, Myself) end),
     {ok, #state{listener = Pid,
                 listener_socket = Socket,
                 client_state = connected}}.
@@ -106,6 +108,9 @@ handle_cast({recv, BinaryMsg}, State) ->
     Msg = decode(BinaryMsg),
     NewState = handle_action(Msg, State),
     {noreply, NewState};
+handle_cast({send, Msg}, State) ->
+    send_message(Msg, State),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -151,75 +156,52 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+encode(Message) ->
+    term_to_binary(Message).
+
 decode(BinaryMessage) ->
     binary_to_term(BinaryMessage).
 
 
 handle_action({join, Name}, State = #state{client_state = connected}) ->
     %% join, store name in state, switch state to joined
-    State;
-handle_action({join, Name}, State) ->
-    %% cannot join twice
+    case chat_server:join(Name) of
+        ok ->
+            send_message(ok, State),
+            State#state{client_state = joined, client_name = Name};
+        {error, Reason} ->
+            send_message({error, Reason}, State),
+            State
+    end;
+handle_action({join, _Name}, State) ->
+    %% cannot join twice, send error
     State;
 handle_action({leave}, State = #state{client_state = joined}) ->
-    %% leave
-    State;
+    chat_server:leave(State#state.client_name),
+    State#state{client_state = connected};
 handle_action({leave}, State) ->
-    %% ignore leaving by user who hasn't joined
+    %% ignore leaving by user who wasn't joined
     State;
 handle_action({say, Msg}, State) ->
-    %% send to chat server so it will broadcast
+    chat_server:say(State#state.client_name, Msg),
     State.
 
 
+send_message(Message, State) ->
+    BinaryMessage = encode(Message),
+    gen_tcp:send(State#state.listener_socket, BinaryMessage).
 
-
-
-wait_for_join_msg(Socket, Pid) ->
-    JoinMsg = receive_message(Socket, Pid),
-    case JoinMsg of
-        {join, Name} ->
-            join_chat(Socket, Name, Pid);
-        Error ->
-            io:format("Unexpected error while waiting for join msg: ~p~n",
-                      [Error])
-    end.
-
-join_chat(Socket, Name, Pid) ->
-    case chat_server:join(Name, Socket) of
-        ok ->
-            wait_for_messages(Name, Socket, Pid);
-        {error, name_already_taken} ->
-            send_error(Socket, name_already_taken),
-            wait_for_join_msg(Socket, Pid);
-        {error, Error} ->
-            send_error(Socket, Error)
-    end.
-
-wait_for_messages(Name, Socket, Pid) ->
-    case receive_message(Socket, Pid) of
-        {say, Msg} ->
-            io:format("~p will say ~p~n", [Name, Msg]),
-            chat_server:say(Name, Msg),
-            wait_for_messages(Name, Socket, Pid);
-        {leave} ->
-            io:format("~p wants to leave~n", [Name]),
-            chat_server:leave(Name);
-        {join, OtherName} ->
-            io:format("~p tries to join again on the same conn", [OtherName]),
-            wait_for_messages(Name, Socket, Pid);
-        Error ->
-            io:format("Unexpected error while listening for messages: ~p~n",
-                      [Error])
-    end.
-
-send_error(Socket, Error) ->
-    io:format("sending error ~p~n", [Error]),
-    gen_tcp:send(Socket, term_to_binary(Error)).
 
 receive_message(Socket, Pid) ->
+
+    io:format("waiting for messages~n"),
+
     case gen_tcp:recv(Socket, 0) of
         {ok, Bin} ->
+
+            io:format("received message ~p~n", [Bin]),
+            io:format("casting to pid: ~p~n", [Pid]),
+
             receive_from_client(Pid, Bin),
             receive_message(Socket, Pid);
         {error, Reason} ->

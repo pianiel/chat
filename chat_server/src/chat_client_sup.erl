@@ -33,7 +33,7 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 create_client(Socket) ->
-    {ok, Pid} = supervisor:start_child(?SERVER, [Socket]),
+    {ok, Pid} = supervisor:start_child(?SERVER, [[Socket]]),
     gen_tcp:controlling_process(Socket, Pid),
     {ok, Pid}.
 

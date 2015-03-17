@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, stop/0, join/2, say/2, leave/1]).
+-export([start_link/0, stop/0, join/1, say/2, leave/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -41,8 +41,8 @@ start_link() ->
 stop() ->
     gen_server:call(?SERVER, stop).
 
-join(Name, Socket) ->
-    gen_server:call(?SERVER, {join, Name, Socket}).
+join(Name) ->
+    gen_server:call(?SERVER, {join, Name, self()}).
 
 say(Name, Msg) ->
     gen_server:cast(?SERVER, {say, Name, Msg}).
@@ -82,12 +82,18 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({join, Name, Socket}, _From, State) ->
+handle_call({join, Name, Pid}, _From, State) ->
     {Reply, Clients} =
         case dict:is_key(Name, State#state.clients) of
             false ->
-                {ok, dict:store(Name, Socket, State#state.clients)};
+
+                io:format("~p joins~n", [Name]),
+                %% TODO send presence to all
+                {ok, dict:store(Name, Pid, State#state.clients)};
             _ ->
+
+                io:format("~p already taken ~n", [Name]),
+
                 {{error, name_already_taken}, State#state.clients}
         end,
     {reply, Reply, State#state{clients = Clients}};
@@ -113,6 +119,7 @@ handle_cast({say, Name, Msg}, State) ->
     {noreply, State};
 handle_cast({leave, Name}, State) ->
     Clients = dict:erase(Name, State#state.clients),
+    %% TODO send presence to all
     {noreply, State#state{clients = Clients}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -160,8 +167,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 broadcast_message(Name, Msg, ClientsDict) ->
-    [send_message(Socket, Name, Msg)
-     || {_Name, Socket} <- dict:to_list(ClientsDict)].
 
-send_message(Socket, Name, Msg) ->
-    gen_tcp:send(Socket, term_to_binary({Name, Msg})).
+    io:format("broadcasting message from ~p: ~p~n", [Name, Msg]),
+
+    [chat_client_handler:send_to_client(Pid, {Name, Msg})
+     || {_ClientName, Pid} <- dict:to_list(ClientsDict)].
