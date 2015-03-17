@@ -34,7 +34,7 @@ init_per_suite(Config) ->
     Timeout = 2000,
     Host = "localhost",
     Port = 6667,
-    Opts = [binary, {packet, 0}, {active, false}],
+    Opts = [binary, {packet, 2}, {active, false}],
     [{timeout, Timeout}, {host, Host}, {port, Port}, {opts, Opts} | Config].
 
 %%--------------------------------------------------------------------
@@ -114,15 +114,18 @@ groups() ->
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [join_and_send].
+    [check_join,
+     check_failed_join,
+     check_send_message_to_self,
+     check_send_message_to_other].
 
 %%--------------------------------------------------------------------
 %% @spec TestCase() -> Info
 %% Info = [tuple()]
 %% @end
 %%--------------------------------------------------------------------
-join_and_send() ->
-    [].
+%% check_join() ->
+    %% [].
 
 %%--------------------------------------------------------------------
 %% @spec TestCase(Config0) ->
@@ -133,19 +136,92 @@ join_and_send() ->
 %% Comment = term()
 %% @end
 %%--------------------------------------------------------------------
-join_and_send(Config) ->
+check_join(Config) ->
     Name = <<"Alice">>,
     Alice = join(Name, Config),
+    ok = receive_msg(Alice, Config),
+
+    Pres = receive_msg(Alice, Config),
+    assert_presence(Pres, Name),
+
+    leave(Alice),
+    close(Alice),
+    ok.
+
+check_failed_join(Config) ->
+    Name = <<"Alice">>,
+    Alice = join(Name, Config),
+    ok = receive_msg(Alice, Config),
+
+    Pres = receive_msg(Alice, Config),
+    assert_presence(Pres, Name),
+
+    Alice2 = join(Name, Config),
+    R = receive_msg(Alice2, Config),
+    assert_error(R),
+
+    leave(Alice),
+    close(Alice),
+    close(Alice2).
+
+check_send_message_to_self(Config) ->
+    Name = <<"Alice">>,
+    Alice = join(Name, Config),
+    ok = receive_msg(Alice, Config),
+
+    Pres = receive_msg(Alice, Config),
+    assert_presence(Pres, Name),
 
     Msg = <<"hello">>,
-    say(Alice, Msg, Config),
-    _B = receive_msg(Alice, Config),
+    say(Alice, Msg),
+    R = receive_msg(Alice, Config),
 
-    %% assert_is_say(Alice, Msg)
+    assert_message(R, Name, Msg),
 
-    leave(Alice, Config),
-    gen_tcp:close(Alice),
+    leave(Alice),
+    close(Alice),
     ok.
+
+check_send_message_to_other(Config) ->
+    NameA = <<"Alice">>,
+    Alice = join(NameA, Config),
+    ok = receive_msg(Alice, Config),
+
+    % presence Alice
+    PresA = receive_msg(Alice, Config),
+    assert_presence(PresA, NameA),
+
+    NameB = <<"Bob">>,
+    Bob = join(NameB, Config),
+    ok = receive_msg(Bob, Config),
+
+    %% presence Bob to Alice
+    PresB = receive_msg(Alice, Config),
+    assert_presence(PresB, NameB),
+    %% presence Bob to Bob
+    PresB2 = receive_msg(Bob, Config),
+    assert_presence(PresB2, NameB),
+
+    Msg = <<"hello bob">>,
+    say(Alice, Msg),
+
+    B1 = receive_msg(Bob, Config),
+    assert_message(B1, NameA, Msg),
+
+    A1 = receive_msg(Alice, Config),
+    assert_message(A1, NameA, Msg),
+
+    leave(Alice),
+    %% unpresence of alice to bob
+    UnpresA = receive_msg(Bob, Config),
+    assert_unpresence(UnpresA, NameA),
+
+    leave(Bob),
+    close(Alice),
+    close(Bob).
+
+
+
 
 %%--------------------------------------------------------------------
 %% helper functions
@@ -157,21 +233,35 @@ encode(Msg) ->
 decode(Bin) ->
     binary_to_term(Bin).
 
+close(Socket) ->
+    gen_tcp:close(Socket).
+
 join(Name, C) ->
     {ok, Socket} = gen_tcp:connect(?value(host, C),
                                    ?value(port, C),
                                    ?value(opts, C)),
     gen_tcp:send(Socket, encode({join, Name})),
-    ok = receive_msg(Socket, C),
     Socket.
 
-leave(Socket, _C) ->
+leave(Socket) ->
     gen_tcp:send(Socket, encode({leave})),
     ok.
 
-say(Socket, Msg, _C) ->
+say(Socket, Msg) ->
     gen_tcp:send(Socket, encode({say, Msg})).
 
 receive_msg(Socket, C) ->
     {ok, Result} = gen_tcp:recv(Socket, 0, ?value(timeout, C)),
     decode(Result).
+
+assert_message(Result, Name, Msg) ->
+    {message, Name, Msg} = Result.
+
+assert_error(Result) ->
+    {error, _Reason} = Result.
+
+assert_presence(Result, Name) ->
+    {presence, Name} = Result.
+
+assert_unpresence(Result, Name) ->
+    {unpresence, Name} = Result.

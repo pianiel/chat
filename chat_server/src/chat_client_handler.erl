@@ -104,6 +104,10 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_cast({recv, closed_socket}, State) ->
+    Msg = {leave},
+    _State = handle_action(Msg, State),
+    {stop, normal, State};
 handle_cast({recv, BinaryMsg}, State) ->
     Msg = decode(BinaryMsg),
     NewState = handle_action(Msg, State),
@@ -204,6 +208,8 @@ receive_message(Socket, Pid) ->
 
             receive_from_client(Pid, Bin),
             receive_message(Socket, Pid);
+        {error, closed} ->
+            receive_from_client(Pid, closed_socket);
         {error, Reason} ->
             io:format("Error while receiving data: ~p~n", [Reason]),
             {error, Reason}

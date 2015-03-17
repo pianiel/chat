@@ -54,7 +54,7 @@ start_link(Port) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Port]) ->
-    Opts = [binary, {packet, 0}, {active, false}, {keepalive, true}],
+    Opts = [binary, {packet, 2}, {active, false}, {keepalive, true}],
     {ok, ListeningSocket} = gen_tcp:listen(Port, Opts), %% TODO options
     process_flag(trap_exit, true),
     Pid = spawn_link(fun() -> wait_for_clients(Port, ListeningSocket) end),

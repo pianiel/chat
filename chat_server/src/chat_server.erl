@@ -83,19 +83,7 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({join, Name, Pid}, _From, State) ->
-    {Reply, Clients} =
-        case dict:is_key(Name, State#state.clients) of
-            false ->
-
-                io:format("~p joins~n", [Name]),
-                %% TODO send presence to all
-                {ok, dict:store(Name, Pid, State#state.clients)};
-            _ ->
-
-                io:format("~p already taken ~n", [Name]),
-
-                {{error, name_already_taken}, State#state.clients}
-        end,
+    {Reply, Clients} = handle_join(Name, Pid, State#state.clients),
     {reply, Reply, State#state{clients = Clients}};
 handle_call(stop, _From, State) ->
     io:format("Stopping~n"),
@@ -115,11 +103,14 @@ handle_call(_Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_cast({say, Name, Msg}, State) ->
-    broadcast_message(Name, Msg, State#state.clients),
+    Message = {message, Name, Msg},
+    %% TODO if message starts with '\', do sth
+    broadcast_message(Message, State#state.clients),
     {noreply, State};
 handle_cast({leave, Name}, State) ->
     Clients = dict:erase(Name, State#state.clients),
-    %% TODO send presence to all
+    Unpresence = {unpresence, Name},
+    broadcast_message(Unpresence, Clients),
     {noreply, State#state{clients = Clients}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -166,9 +157,26 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-broadcast_message(Name, Msg, ClientsDict) ->
+handle_join(Name, Pid, Clients) ->
+    case dict:is_key(Name, Clients) of
+        false ->
+
+            io:format("~p joins~n", [Name]),
+
+            Presence = {presence, Name},
+            NewClients = dict:store(Name, Pid, Clients),
+            broadcast_message(Presence, NewClients),
+            {ok, NewClients};
+        _ ->
+
+            io:format("~p already taken ~n", [Name]),
+
+            {{error, name_already_taken}, Clients}
+    end.
+
+broadcast_message(Msg, ClientsDict) ->
 
     io:format("broadcasting message from ~p: ~p~n", [Name, Msg]),
 
-    [chat_client_handler:send_to_client(Pid, {Name, Msg})
+    [chat_client_handler:send_to_client(Pid, Msg)
      || {_ClientName, Pid} <- dict:to_list(ClientsDict)].
