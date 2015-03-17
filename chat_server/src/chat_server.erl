@@ -19,7 +19,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {clients :: dict:dict()}).
 
 %%%===================================================================
 %%% API
@@ -68,7 +68,7 @@ leave(Name) ->
 %%--------------------------------------------------------------------
 init([Port]) ->
     tcp_listener:start(Port),
-    {ok, #state{}}.
+    {ok, #state{clients = dict:new()}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -84,6 +84,15 @@ init([Port]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_call({join, Name, Socket}, _From, State) ->
+    {Reply, Clients} = 
+        case dict:is_key(Name, State#state.clients) of
+            false ->
+                {ok, dict:store(Name, Socket, State#state.clients)};
+            _ ->
+                {{error, name_already_taken}, State#state.clients}                 
+        end,
+    {reply, Reply, State#state{clients = Clients}};
 handle_call(stop, _From, State) ->
     io:format("Stopping~n"),
     {stop, normal, ok, State};
@@ -101,6 +110,12 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_cast({say, Name, Msg}, State) ->
+    broadcast_message(Name, Msg, State#state.clients),
+    {noreply, State};
+handle_cast({leave, Name}, State) ->
+    Clients = dict:erase(Name, State#state.clients),
+    {noreply, State#state{clients = Clients}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -146,3 +161,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+broadcast_message(Name, Msg, ClientsDict) ->
+    [send_message(Socket, Name, Msg) 
+     || {_Name, Socket} <- dict:to_list(ClientsDict)].
+
+send_message(Socket, Name, Msg) ->
+    gen_tcp:send(Socket, term_to_binary({Name, Msg})).
