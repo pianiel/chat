@@ -32,6 +32,7 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
+
 create_client(Socket) ->
     {ok, Pid} = supervisor:start_child(?SERVER, [[Socket]]),
     gen_tcp:controlling_process(Socket, Pid),
@@ -56,8 +57,8 @@ create_client(Socket) ->
 %%--------------------------------------------------------------------
 init([]) ->
     RestartStrategy = simple_one_for_one,
-    MaxRestarts = 1000,
-    MaxSecondsBetweenRestarts = 3600,
+    MaxRestarts = 50,
+    MaxSecondsBetweenRestarts = 100,
 
     SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
 

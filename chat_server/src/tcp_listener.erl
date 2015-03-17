@@ -55,7 +55,7 @@ start_link(Port) ->
 %%--------------------------------------------------------------------
 init([Port]) ->
     Opts = [binary, {packet, 2}, {active, false}, {keepalive, true}],
-    {ok, ListeningSocket} = gen_tcp:listen(Port, Opts), %% TODO options
+    {ok, ListeningSocket} = gen_tcp:listen(Port, Opts),
     process_flag(trap_exit, true),
     Pid = spawn_link(fun() -> wait_for_clients(Port, ListeningSocket) end),
     {ok, #state{listener = Pid, listener_socket = ListeningSocket}}.
@@ -138,13 +138,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 -spec wait_for_clients(inet:port_number(), gen_tcp:socket()) -> no_return().
 wait_for_clients(Port, Socket) ->
-    io:format("Waiting to accept on port: ~p...~n",[Port]),
     case gen_tcp:accept(Socket) of
         {ok, ClientSocket} ->
-            io:format("Accepted~n",[]),
             chat_client_sup:create_client(ClientSocket);
-            %% Pid = spawn_link(?MODULE, accept_new_client, [ClientSocket]),
-            %% gen_tcp:controlling_process(ClientSocket, Pid);
         Error ->
             io:format("Unexpected error while listening on port ~p: ~p~n",
                       [Port, Error])

@@ -39,9 +39,6 @@
 %% @end
 %%--------------------------------------------------------------------
 start_link([Socket]) ->
-
-    io:format("starting client_handler~n"),
-
     gen_server:start_link(?MODULE, [Socket], []).
 
 
@@ -168,7 +165,6 @@ decode(BinaryMessage) ->
 
 
 handle_action({join, Name}, State = #state{client_state = connected}) ->
-    %% join, store name in state, switch state to joined
     case chat_server:join(Name) of
         ok ->
             send_message(ok, State),
@@ -178,14 +174,17 @@ handle_action({join, Name}, State = #state{client_state = connected}) ->
             State
     end;
 handle_action({join, _Name}, State) ->
-    %% cannot join twice, send error
+    %% cannot join twice
+    send_message({error, user_already_joined}, State),
     State;
 handle_action({leave}, State = #state{client_state = joined}) ->
     chat_server:leave(State#state.client_name),
     State#state{client_state = connected};
 handle_action({leave}, State) ->
-    %% ignore leaving by user who wasn't joined
+    %% ignore leaving of user who hasn't joined
     State;
+handle_action({say, _Msg}, State = #state{client_state = connected}) ->
+    send_message({error, user_has_not_joined}, State);
 handle_action({say, Msg}, State) ->
     chat_server:say(State#state.client_name, Msg),
     State.
@@ -197,15 +196,8 @@ send_message(Message, State) ->
 
 
 receive_message(Socket, Pid) ->
-
-    io:format("waiting for messages~n"),
-
     case gen_tcp:recv(Socket, 0) of
         {ok, Bin} ->
-
-            io:format("received message ~p~n", [Bin]),
-            io:format("casting to pid: ~p~n", [Pid]),
-
             receive_from_client(Pid, Bin),
             receive_message(Socket, Pid);
         {error, closed} ->

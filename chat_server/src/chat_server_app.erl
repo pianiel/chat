@@ -10,7 +10,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    Port = 6667,
+    Port = 6667, %% can be passed as a parameter if needed
     chat_server_sup:start_link(Port).
 
 stop(_State) ->
