@@ -116,16 +116,11 @@ groups() ->
 all() ->
     [check_join,
      check_failed_join,
+     check_join_twice,
+     check_send_message_without_joining,
      check_send_message_to_self,
-     check_send_message_to_other].
-
-%%--------------------------------------------------------------------
-%% @spec TestCase() -> Info
-%% Info = [tuple()]
-%% @end
-%%--------------------------------------------------------------------
-%% check_join() ->
-    %% [].
+     check_send_message_to_other,
+     check_send_control].
 
 %%--------------------------------------------------------------------
 %% @spec TestCase(Config0) ->
@@ -145,8 +140,24 @@ check_join(Config) ->
     assert_presence(Pres, Name),
 
     leave(Alice),
-    close(Alice),
-    ok.
+    close(Alice).
+
+check_join_twice(Config) ->
+    Name = <<"Alice">>,
+    Alice = join(Name, Config),
+    ok = receive_msg(Alice, Config),
+
+    Pres = receive_msg(Alice, Config),
+    assert_presence(Pres, Name),
+
+    %% second join
+    gen_tcp:send(Alice, encode({join, Name})),
+
+    assert_error(receive_msg(Alice, Config)),
+
+    leave(Alice),
+    close(Alice).
+
 
 check_failed_join(Config) ->
     Name = <<"Alice">>,
@@ -164,6 +175,29 @@ check_failed_join(Config) ->
     close(Alice),
     close(Alice2).
 
+check_send_message_without_joining(Config) ->
+    Name = <<"Alice">>,
+    Alice = join(Name, Config),
+    ok = receive_msg(Alice, Config),
+
+    Pres = receive_msg(Alice, Config),
+    assert_presence(Pres, Name),
+
+    {ok, User} = gen_tcp:connect(?value(host, Config),
+                                 ?value(port, Config),
+                                 ?value(opts, Config)),
+    Msg = <<"huh?">>,
+    say(User, Msg),
+
+    assert_timeout(Alice, Config),
+
+    R = receive_msg(User, Config),
+    assert_error(R),
+    leave(Alice),
+    close(Alice),
+    close(User).
+
+
 check_send_message_to_self(Config) ->
     Name = <<"Alice">>,
     Alice = join(Name, Config),
@@ -179,8 +213,7 @@ check_send_message_to_self(Config) ->
     assert_message(R, Name, Msg),
 
     leave(Alice),
-    close(Alice),
-    ok.
+    close(Alice).
 
 check_send_message_to_other(Config) ->
     NameA = <<"Alice">>,
@@ -220,7 +253,20 @@ check_send_message_to_other(Config) ->
     close(Alice),
     close(Bob).
 
+check_send_control(Config) ->
+    Name = <<"Alice">>,
+    Alice = join(Name, Config),
+    ok = receive_msg(Alice, Config),
 
+    Pres = receive_msg(Alice, Config),
+    assert_presence(Pres, Name),
+
+    Msg = <<"\\hello">>,
+    say(Alice, Msg),
+    assert_timeout(Alice, Config),
+
+    leave(Alice),
+    close(Alice).
 
 
 %%--------------------------------------------------------------------
@@ -253,6 +299,9 @@ say(Socket, Msg) ->
 receive_msg(Socket, C) ->
     {ok, Result} = gen_tcp:recv(Socket, 0, ?value(timeout, C)),
     decode(Result).
+
+assert_timeout(Socket, C) ->
+    {error, timeout} = gen_tcp:recv(Socket, 0, ?value(timeout, C)).
 
 assert_message(Result, Name, Msg) ->
     {message, Name, Msg} = Result.
