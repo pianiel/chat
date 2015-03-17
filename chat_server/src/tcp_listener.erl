@@ -25,7 +25,8 @@ loop(Port, Socket) ->
     case gen_tcp:accept(Socket) of
         {ok, ClientSocket} ->
             io:format("Accepted~n",[]),
-            spawn_link(?MODULE, accept_new_client, [ClientSocket]);
+            Pid = spawn_link(?MODULE, accept_new_client, [ClientSocket]),
+            gen_tcp:controlling_process(ClientSocket, Pid);
         Error ->
             io:format("Unexpected error while listening on port ~p: ~p~n", 
                       [Port, Error])
