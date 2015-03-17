@@ -17,8 +17,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([wait_for_clients/2, accept_new_client/1]).
-
 -define(SERVER, ?MODULE).
 
 -type socket() :: gen_tcp:socket().
@@ -58,7 +56,8 @@ start_link(Port) ->
 init([Port]) ->
     Opts = [binary, {packet, 0}, {active, false}, {keepalive, true}],
     {ok, ListeningSocket} = gen_tcp:listen(Port, Opts), %% TODO options
-    Pid = spawn_link(?MODULE, wait_for_clients, [Port, ListeningSocket]),
+    process_flag(trap_exit, true),
+    Pid = spawn_link(fun() -> wait_for_clients(Port, ListeningSocket) end),
     {ok, #state{listener = Pid, listener_socket = ListeningSocket}}.
 
 %%--------------------------------------------------------------------
@@ -102,6 +101,8 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_info({'EXIT', _Pid, Reason}, State) ->
+    {stop, Reason, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -141,61 +142,11 @@ wait_for_clients(Port, Socket) ->
     case gen_tcp:accept(Socket) of
         {ok, ClientSocket} ->
             io:format("Accepted~n",[]),
-            Pid = spawn_link(?MODULE, accept_new_client, [ClientSocket]),
-            gen_tcp:controlling_process(ClientSocket, Pid);
+            chat_client_sup:create_client(ClientSocket);
+            %% Pid = spawn_link(?MODULE, accept_new_client, [ClientSocket]),
+            %% gen_tcp:controlling_process(ClientSocket, Pid);
         Error ->
             io:format("Unexpected error while listening on port ~p: ~p~n",
                       [Port, Error])
     end,
     wait_for_clients(Port, Socket).
-
-
-accept_new_client(Socket) ->
-    %% BinaryMsg = do_receive(Socket),
-    %% join and call chat_server:join(Name)
-    JoinMsg = receive_msg(Socket),
-    case JoinMsg of
-        {join, Name} ->
-            join_chat(Socket, Name);
-        Error ->
-            io:format("Unexpected error while waiting for join msg: ~p~n",
-                      [Error])
-    end.
-
-join_chat(Socket, Name) ->
-    case chat_server:join(Name, Socket) of
-        ok ->
-            wait_for_messages(Name, Socket);
-        {error, name_already_taken} ->
-            send_error(Socket, name_already_taken),
-            wait_for_messages(Name, Socket);
-        {error, Error} ->
-            send_error(Socket, Error)
-    end.
-
-wait_for_messages(Name, Socket) ->
-    case receive_msg(Socket) of
-        {msg, Msg} ->
-            io:format("~p will say ~p~n", [Name, Msg]),
-            chat_server:say(Name, Msg),
-            wait_for_messages(Name, Socket);
-        {leave} ->
-            io:format("~p wants to leave~n", [Name]),
-            chat_server:leave(Name);
-        Error ->
-            io:format("Unexpected error while listening for messages: ~p~n",
-                      [Error])
-    end.
-
-send_error(Socket, Error) ->
-    io:format("sending error ~p~n", [Error]),
-    gen_tcp:send(Socket, term_to_binary(Error)).
-
-receive_msg(Socket) ->
-    case gen_tcp:recv(Socket, 0) of
-        {ok, Bin} ->
-            binary_to_term(Bin);
-        Error ->
-            io:format("Unexpected error while receiving data: ~p~n", [Error]),
-            Error
-    end.

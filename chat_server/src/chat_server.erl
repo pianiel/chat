@@ -25,7 +25,7 @@
 %%% API
 %%%===================================================================
 %% join(Name) ->
-    
+
 
 
 %%--------------------------------------------------------------------
@@ -83,12 +83,12 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({join, Name, Socket}, _From, State) ->
-    {Reply, Clients} = 
+    {Reply, Clients} =
         case dict:is_key(Name, State#state.clients) of
             false ->
                 {ok, dict:store(Name, Socket, State#state.clients)};
             _ ->
-                {{error, name_already_taken}, State#state.clients}                 
+                {{error, name_already_taken}, State#state.clients}
         end,
     {reply, Reply, State#state{clients = Clients}};
 handle_call(stop, _From, State) ->
@@ -160,7 +160,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 broadcast_message(Name, Msg, ClientsDict) ->
-    [send_message(Socket, Name, Msg) 
+    [send_message(Socket, Name, Msg)
      || {_Name, Socket} <- dict:to_list(ClientsDict)].
 
 send_message(Socket, Name, Msg) ->

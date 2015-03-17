@@ -31,12 +31,16 @@ init([Port]) ->
 
     Restart = permanent,
     Shutdown = 2000,
-    Type = worker,
 
     ChatServerMod = chat_server,
     ChatServerChild = {ChatServerMod, {ChatServerMod, start_link, []},
-                       Restart, Shutdown, Type, [ChatServerMod]},
+                       Restart, Shutdown, worker, [ChatServerMod]},
+
     TcpListenerMod = tcp_listener,
     TcpListenerChild = {TcpListenerMod, {TcpListenerMod, start_link, [Port]},
-                        Restart, Shutdown, Type, [TcpListenerMod]},
-    {ok, {SupFlags, [ChatServerChild, TcpListenerChild]}}.
+                        Restart, Shutdown, worker, [TcpListenerMod]},
+
+    ClientSupMod = chat_client_sup,
+    ClientSupChild = {ClientSupMod, {ClientSupMod, start_link, []},
+                      Restart, Shutdown, supervisor, [ClientSupMod]},
+    {ok, {SupFlags, [ChatServerChild, ClientSupChild, TcpListenerChild]}}.
