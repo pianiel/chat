@@ -4,23 +4,139 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 16 Mar 2015 by Piotr Anielski <ptr@t440s>
+%%% Created : 17 Mar 2015 by Piotr Anielski <ptr@t440s>
 %%%-------------------------------------------------------------------
 -module(tcp_listener).
 
--export([start/1, init/1, accept_new_client/1]).
+-behaviour(gen_server).
 
-start(Port) ->
-    spawn_link(?MODULE, init, [Port]).
+%% API
+-export([start_link/1]).
 
-%% stop() ->
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
-init(Port) ->
+-export([wait_for_clients/2, accept_new_client/1]).
+
+-define(SERVER, ?MODULE).
+
+-type socket() :: gen_tcp:socket().
+
+-record(state, {listener :: pid(),
+                listener_socket :: socket()}).
+
+%%%===================================================================
+%%% API
+%%%===================================================================
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Starts the server
+%%
+%% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
+%% @end
+%%--------------------------------------------------------------------
+start_link(Port) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Port], []).
+
+%%%===================================================================
+%%% gen_server callbacks
+%%%===================================================================
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Initializes the server
+%%
+%% @spec init(Args) -> {ok, State} |
+%%                     {ok, State, Timeout} |
+%%                     ignore |
+%%                     {stop, Reason}
+%% @end
+%%--------------------------------------------------------------------
+init([Port]) ->
     Opts = [binary, {packet, 0}, {active, false}, {keepalive, true}],
     {ok, ListeningSocket} = gen_tcp:listen(Port, Opts), %% TODO options
-    loop(Port, ListeningSocket).
+    Pid = spawn_link(?MODULE, wait_for_clients, [Port, ListeningSocket]),
+    {ok, #state{listener = Pid, listener_socket = ListeningSocket}}.
 
-loop(Port, Socket) ->
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handling call messages
+%%
+%% @spec handle_call(Request, From, State) ->
+%%                                   {reply, Reply, State} |
+%%                                   {reply, Reply, State, Timeout} |
+%%                                   {noreply, State} |
+%%                                   {noreply, State, Timeout} |
+%%                                   {stop, Reason, Reply, State} |
+%%                                   {stop, Reason, State}
+%% @end
+%%--------------------------------------------------------------------
+handle_call(_Request, _From, State) ->
+    Reply = ok,
+    {reply, Reply, State}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handling cast messages
+%%
+%% @spec handle_cast(Msg, State) -> {noreply, State} |
+%%                                  {noreply, State, Timeout} |
+%%                                  {stop, Reason, State}
+%% @end
+%%--------------------------------------------------------------------
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handling all non call/cast messages
+%%
+%% @spec handle_info(Info, State) -> {noreply, State} |
+%%                                   {noreply, State, Timeout} |
+%%                                   {stop, Reason, State}
+%% @end
+%%--------------------------------------------------------------------
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% This function is called by a gen_server when it is about to
+%% terminate. It should be the opposite of Module:init/1 and do any
+%% necessary cleaning up. When it returns, the gen_server terminates
+%% with Reason. The return value is ignored.
+%%
+%% @spec terminate(Reason, State) -> void()
+%% @end
+%%--------------------------------------------------------------------
+terminate(_Reason, State) ->
+    exit(State#state.listener, shutdown),
+    gen_tcp:close(State#state.listener_socket),
+    ok.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Convert process state when code is changed
+%%
+%% @spec code_change(OldVsn, State, Extra) -> {ok, NewState}
+%% @end
+%%--------------------------------------------------------------------
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+-spec wait_for_clients(inet:port_number(), gen_tcp:socket()) -> no_return().
+wait_for_clients(Port, Socket) ->
     io:format("Waiting to accept on port: ~p...~n",[Port]),
     case gen_tcp:accept(Socket) of
         {ok, ClientSocket} ->
@@ -28,10 +144,10 @@ loop(Port, Socket) ->
             Pid = spawn_link(?MODULE, accept_new_client, [ClientSocket]),
             gen_tcp:controlling_process(ClientSocket, Pid);
         Error ->
-            io:format("Unexpected error while listening on port ~p: ~p~n", 
+            io:format("Unexpected error while listening on port ~p: ~p~n",
                       [Port, Error])
     end,
-    loop(Port, Socket).
+    wait_for_clients(Port, Socket).
 
 
 accept_new_client(Socket) ->
@@ -40,18 +156,21 @@ accept_new_client(Socket) ->
     JoinMsg = receive_msg(Socket),
     case JoinMsg of
         {join, Name} ->
-            case chat_server:join(Name, Socket) of
-                ok ->
-                    wait_for_messages(Name, Socket);
-                {error, name_already_taken} ->
-                    send_error(Socket, name_already_taken),
-                    wait_for_messages(Name, Socket);
-                {error, Error} ->
-                    send_error(Socket, Error)
-            end;
+            join_chat(Socket, Name);
         Error ->
             io:format("Unexpected error while waiting for join msg: ~p~n",
                       [Error])
+    end.
+
+join_chat(Socket, Name) ->
+    case chat_server:join(Name, Socket) of
+        ok ->
+            wait_for_messages(Name, Socket);
+        {error, name_already_taken} ->
+            send_error(Socket, name_already_taken),
+            wait_for_messages(Name, Socket);
+        {error, Error} ->
+            send_error(Socket, Error)
     end.
 
 wait_for_messages(Name, Socket) ->
