@@ -14,21 +14,9 @@
 
 -define(value(Key,Config), proplists:get_value(Key,Config)).
 
-%%--------------------------------------------------------------------
-%% @spec suite() -> Info
-%% Info = [tuple()]
-%% @end
-%%--------------------------------------------------------------------
 suite() ->
     [{timetrap,{seconds,30}}].
 
-%%--------------------------------------------------------------------
-%% @spec init_per_suite(Config0) ->
-%%     Config1 | {skip,Reason} | {skip_and_save,Reason,Config1}
-%% Config0 = Config1 = [tuple()]
-%% Reason = term()
-%% @end
-%%--------------------------------------------------------------------
 init_per_suite(Config) ->
     application:start(chat_server),
     Timeout = 2000,
@@ -37,82 +25,28 @@ init_per_suite(Config) ->
     Opts = [binary, {packet, 2}, {active, false}],
     [{timeout, Timeout}, {host, Host}, {port, Port}, {opts, Opts} | Config].
 
-%%--------------------------------------------------------------------
-%% @spec end_per_suite(Config0) -> void() | {save_config,Config1}
-%% Config0 = Config1 = [tuple()]
-%% @end
-%%--------------------------------------------------------------------
 end_per_suite(_Config) ->
     application:stop(chat_server),
     ok.
 
-%%--------------------------------------------------------------------
-%% @spec init_per_group(GroupName, Config0) ->
-%%               Config1 | {skip,Reason} | {skip_and_save,Reason,Config1}
-%% GroupName = atom()
-%% Config0 = Config1 = [tuple()]
-%% Reason = term()
-%% @end
-%%--------------------------------------------------------------------
-init_per_group(_GroupName, Config) ->
-    Config.
 
-%%--------------------------------------------------------------------
-%% @spec end_per_group(GroupName, Config0) ->
-%%               void() | {save_config,Config1}
-%% GroupName = atom()
-%% Config0 = Config1 = [tuple()]
-%% @end
-%%--------------------------------------------------------------------
-end_per_group(_GroupName, _Config) ->
-    ok.
-
-%%--------------------------------------------------------------------
-%% @spec init_per_testcase(TestCase, Config0) ->
-%%               Config1 | {skip,Reason} | {skip_and_save,Reason,Config1}
-%% TestCase = atom()
-%% Config0 = Config1 = [tuple()]
-%% Reason = term()
-%% @end
-%%--------------------------------------------------------------------
 init_per_testcase(_TestCase, Config) ->
-    Config.
+    Name = <<"Alice">>,
+    Alice = join(Name, Config),
+    ok = receive_msg(Alice, Config),
 
-%%--------------------------------------------------------------------
-%% @spec end_per_testcase(TestCase, Config0) ->
-%%               void() | {save_config,Config1} | {fail,Reason}
-%% TestCase = atom()
-%% Config0 = Config1 = [tuple()]
-%% Reason = term()
-%% @end
-%%--------------------------------------------------------------------
-end_per_testcase(_TestCase, _Config) ->
-    ok.
+    % presence Alice
+    Pres = receive_msg(Alice, Config),
+    assert_presence(Pres, Name),
 
-%%--------------------------------------------------------------------
-%% @spec groups() -> [Group]
-%% Group = {GroupName,Properties,GroupsAndTestCases}
-%% GroupName = atom()
-%% Properties = [parallel | sequence | Shuffle | {RepeatType,N}]
-%% GroupsAndTestCases = [Group | {group,GroupName} | TestCase]
-%% TestCase = atom()
-%% Shuffle = shuffle | {shuffle,{integer(),integer(),integer()}}
-%% RepeatType = repeat | repeat_until_all_ok | repeat_until_all_fail |
-%%              repeat_until_any_ok | repeat_until_any_fail
-%% N = integer() | forever
-%% @end
-%%--------------------------------------------------------------------
-groups() ->
-    [].
+    [{alice, Alice}, {alice_name, Name} | Config].
 
-%%--------------------------------------------------------------------
-%% @spec all() -> GroupsAndTestCases | {skip,Reason}
-%% GroupsAndTestCases = [{group,GroupName} | TestCase]
-%% GroupName = atom()
-%% TestCase = atom()
-%% Reason = term()
-%% @end
-%%--------------------------------------------------------------------
+
+end_per_testcase(_TestCase, Config) ->
+    Alice = ?value(alice, Config),
+    leave(Alice),
+    close(Alice).
+
 all() ->
     [check_join,
      check_failed_join,
@@ -123,32 +57,16 @@ all() ->
      check_send_control].
 
 %%--------------------------------------------------------------------
-%% @spec TestCase(Config0) ->
-%%               ok | exit() | {skip,Reason} | {comment,Comment} |
-%%               {save_config,Config1} | {skip_and_save,Reason,Config1}
-%% Config0 = Config1 = [tuple()]
-%% Reason = term()
-%% Comment = term()
-%% @end
+%% TEST CASES
 %%--------------------------------------------------------------------
-check_join(Config) ->
-    Name = <<"Alice">>,
-    Alice = join(Name, Config),
-    ok = receive_msg(Alice, Config),
 
-    Pres = receive_msg(Alice, Config),
-    assert_presence(Pres, Name),
+check_join(_Config) ->
+    ok. %% init per testcase + end per testcase
 
-    leave(Alice),
-    close(Alice).
 
 check_join_twice(Config) ->
-    Name = <<"Alice">>,
-    Alice = join(Name, Config),
-    ok = receive_msg(Alice, Config),
-
-    Pres = receive_msg(Alice, Config),
-    assert_presence(Pres, Name),
+    Alice = ?value(alice, Config),
+    Name = ?value(alice_name, Config),
 
     %% second join
     gen_tcp:send(Alice, encode({join, Name})),
@@ -160,28 +78,16 @@ check_join_twice(Config) ->
 
 
 check_failed_join(Config) ->
-    Name = <<"Alice">>,
-    Alice = join(Name, Config),
-    ok = receive_msg(Alice, Config),
-
-    Pres = receive_msg(Alice, Config),
-    assert_presence(Pres, Name),
+    Name = ?value(alice_name, Config),
 
     Alice2 = join(Name, Config),
     R = receive_msg(Alice2, Config),
     assert_error(R),
-
-    leave(Alice),
-    close(Alice),
     close(Alice2).
 
-check_send_message_without_joining(Config) ->
-    Name = <<"Alice">>,
-    Alice = join(Name, Config),
-    ok = receive_msg(Alice, Config),
 
-    Pres = receive_msg(Alice, Config),
-    assert_presence(Pres, Name),
+check_send_message_without_joining(Config) ->
+    Alice = ?value(alice, Config),
 
     {ok, User} = gen_tcp:connect(?value(host, Config),
                                  ?value(port, Config),
@@ -193,36 +99,23 @@ check_send_message_without_joining(Config) ->
 
     R = receive_msg(User, Config),
     assert_error(R),
-    leave(Alice),
-    close(Alice),
     close(User).
 
 
 check_send_message_to_self(Config) ->
-    Name = <<"Alice">>,
-    Alice = join(Name, Config),
-    ok = receive_msg(Alice, Config),
-
-    Pres = receive_msg(Alice, Config),
-    assert_presence(Pres, Name),
+    Alice = ?value(alice, Config),
+    Name = ?value(alice_name, Config),
 
     Msg = <<"hello">>,
     say(Alice, Msg),
     R = receive_msg(Alice, Config),
 
-    assert_message(R, Name, Msg),
+    assert_message(R, Name, Msg).
 
-    leave(Alice),
-    close(Alice).
 
 check_send_message_to_other(Config) ->
-    NameA = <<"Alice">>,
-    Alice = join(NameA, Config),
-    ok = receive_msg(Alice, Config),
-
-    % presence Alice
-    PresA = receive_msg(Alice, Config),
-    assert_presence(PresA, NameA),
+    Alice = ?value(alice, Config),
+    NameA = ?value(alice_name, Config),
 
     NameB = <<"Bob">>,
     Bob = join(NameB, Config),
@@ -244,29 +137,19 @@ check_send_message_to_other(Config) ->
     A1 = receive_msg(Alice, Config),
     assert_message(A1, NameA, Msg),
 
-    leave(Alice),
-    %% unpresence of alice to bob
-    UnpresA = receive_msg(Bob, Config),
-    assert_unpresence(UnpresA, NameA),
-
     leave(Bob),
-    close(Alice),
+    %% unpresence of bob to alice
+    UnpresB = receive_msg(Alice, Config),
+    assert_unpresence(UnpresB, NameB),
+
     close(Bob).
 
 check_send_control(Config) ->
-    Name = <<"Alice">>,
-    Alice = join(Name, Config),
-    ok = receive_msg(Alice, Config),
-
-    Pres = receive_msg(Alice, Config),
-    assert_presence(Pres, Name),
+    Alice = ?value(alice, Config),
 
     Msg = <<"\\hello">>,
     say(Alice, Msg),
-    assert_timeout(Alice, Config),
-
-    leave(Alice),
-    close(Alice).
+    assert_timeout(Alice, Config).
 
 
 %%--------------------------------------------------------------------
