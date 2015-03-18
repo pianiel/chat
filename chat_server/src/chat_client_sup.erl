@@ -22,17 +22,11 @@
 %%% API functions
 %%%===================================================================
 
-%%--------------------------------------------------------------------
-%% @doc
-%% Starts the supervisor
-%%
-%% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
-%% @end
-%%--------------------------------------------------------------------
+-spec start_link() -> {ok, pid()} | ignore | {error, Reason :: any()}.
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-
+-spec create_client(gen_tcp:socket()) -> {ok, pid()}.
 create_client(Socket) ->
     {ok, Pid} = supervisor:start_child(?SERVER, [[Socket]]),
     gen_tcp:controlling_process(Socket, Pid),
@@ -42,19 +36,6 @@ create_client(Socket) ->
 %%% Supervisor callbacks
 %%%===================================================================
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Whenever a supervisor is started using supervisor:start_link/[2,3],
-%% this function is called by the new process to find out about
-%% restart strategy, maximum restart frequency and child
-%% specifications.
-%%
-%% @spec init(Args) -> {ok, {SupFlags, [ChildSpec]}} |
-%%                     ignore |
-%%                     {error, Reason}
-%% @end
-%%--------------------------------------------------------------------
 init([]) ->
     RestartStrategy = simple_one_for_one,
     MaxRestarts = 50,
@@ -68,6 +49,7 @@ init([]) ->
 %%% Internal functions
 %%%===================================================================
 
+-spec client_child_spec() -> tuple().
 client_child_spec() ->
     Restart = temporary,
     Shutdown = 2000,

@@ -15,13 +15,15 @@
 %% API functions
 %% ===================================================================
 
+-spec start_link(inet:port()) -> {ok, pid()} |
+                                 ignore |
+                                 {error, Reason :: any()}.
 start_link(Port) ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, [Port]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
-
 init([Port]) ->
     RestartStrategy = rest_for_one,
     MaxRestarts = 5,

@@ -19,34 +19,30 @@
 
 -define(SERVER, ?MODULE).
 
+-type user_name() :: binary().
+-type encoded_message() :: binary().
+-type message() :: ok | tuple().
+
 -record(state, {clients :: dict:dict()}).
+-type state() :: #state{}.
 
 %%%===================================================================
 %%% API
 %%%===================================================================
-%% join(Name) ->
 
-
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Starts the server
-%%
-%% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
-%% @end
-%%--------------------------------------------------------------------
+-spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-stop() ->
-    gen_server:call(?SERVER, stop).
-
+-spec join(user_name()) -> ok | {error, name_already_taken}.
 join(Name) ->
     gen_server:call(?SERVER, {join, Name, self()}).
 
+-spec say(user_name(), encoded_message()) -> ok.
 say(Name, Msg) ->
     gen_server:cast(?SERVER, {say, Name, Msg}).
 
+-spec leave(user_name()) -> ok.
 leave(Name) ->
     gen_server:cast(?SERVER, {leave, Name}).
 
@@ -54,34 +50,14 @@ leave(Name) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Initializes the server
-%%
-%% @spec init(Args) -> {ok, State} |
-%%                     {ok, State, Timeout} |
-%%                     ignore |
-%%                     {stop, Reason}
-%% @end
-%%--------------------------------------------------------------------
+-spec init([any()]) -> {ok, state()}.
 init([]) ->
     {ok, #state{clients = dict:new()}}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling call messages
-%%
-%% @spec handle_call(Request, From, State) ->
-%%                                   {reply, Reply, State} |
-%%                                   {reply, Reply, State, Timeout} |
-%%                                   {noreply, State} |
-%%                                   {noreply, State, Timeout} |
-%%                                   {stop, Reason, Reply, State} |
-%%                                   {stop, Reason, State}
-%% @end
-%%--------------------------------------------------------------------
+
+-spec handle_call(Request :: any(), any(), state()) ->
+                         {reply, Reply :: any(), state()} |
+                         {stop, normal, Reply :: any(), state()}.
 handle_call({join, Name, Pid}, _From, State) ->
     {Reply, Clients} = handle_join(Name, Pid, State#state.clients),
     {reply, Reply, State#state{clients = Clients}};
@@ -91,16 +67,8 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling cast messages
-%%
-%% @spec handle_cast(Msg, State) -> {noreply, State} |
-%%                                  {noreply, State, Timeout} |
-%%                                  {stop, Reason, State}
-%% @end
-%%--------------------------------------------------------------------
+
+-spec handle_cast(Msg :: any(), state()) -> {noreply, state()}.
 handle_cast({say, _Name, <<"\\", _Rest/binary>>}, State) ->
     %% TODO if message starts with '\', do sth
     {noreply, State};
@@ -116,47 +84,24 @@ handle_cast({leave, Name}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling all non call/cast messages
-%%
-%% @spec handle_info(Info, State) -> {noreply, State} |
-%%                                   {noreply, State, Timeout} |
-%%                                   {stop, Reason, State}
-%% @end
-%%--------------------------------------------------------------------
+
+-spec handle_info(Info :: any(), state()) -> {noreply, state()}.
 handle_info(_Info, State) ->
     {noreply, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any
-%% necessary cleaning up. When it returns, the gen_server terminates
-%% with Reason. The return value is ignored.
-%%
-%% @spec terminate(Reason, State) -> void()
-%% @end
-%%--------------------------------------------------------------------
+
+-spec terminate(Reason :: any(), state()) -> ok.
 terminate(_Reason, _State) ->
     ok.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Convert process state when code is changed
-%%
-%% @spec code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% @end
-%%--------------------------------------------------------------------
+-spec code_change(OldVsn :: any(), state(), Extra :: any()) -> {ok, state()}.
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
 -spec handle_join(user_name(), pid(), dict:dict()) ->
                          {ok | {error, name_already_taken}, dict:dict()}.
 handle_join(Name, Pid, Clients) ->
@@ -173,4 +118,5 @@ handle_join(Name, Pid, Clients) ->
 -spec broadcast_message(message(), dict:dict()) -> ok.
 broadcast_message(Msg, ClientsDict) ->
     [chat_client_handler:send_to_client(Pid, Msg)
-     || {_ClientName, Pid} <- dict:to_list(ClientsDict)].
+     || {_ClientName, Pid} <- dict:to_list(ClientsDict)],
+    ok.
