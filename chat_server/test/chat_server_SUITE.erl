@@ -30,6 +30,8 @@ end_per_suite(_Config) ->
     ok.
 
 
+init_per_testcase(check_join, Config) ->
+    Config;
 init_per_testcase(_TestCase, Config) ->
     Name = <<"Alice">>,
     Alice = join(Name, Config),
@@ -41,7 +43,8 @@ init_per_testcase(_TestCase, Config) ->
 
     [{alice, Alice}, {alice_name, Name} | Config].
 
-
+end_per_testcase(check_join, Config) ->
+    ok;
 end_per_testcase(_TestCase, Config) ->
     Alice = ?value(alice, Config),
     leave(Alice),
@@ -54,14 +57,24 @@ all() ->
      check_send_message_without_joining,
      check_send_message_to_self,
      check_send_message_to_other,
-     check_send_control].
+     check_send_control,
+     check_send_malformed].
 
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-check_join(_Config) ->
-    ok. %% init per testcase + end per testcase
+check_join(Config) ->
+    Name = <<"Alice">>,
+    Alice = join(Name, Config),
+    ok = receive_msg(Alice, Config),
+
+    % presence Alice
+    Pres = receive_msg(Alice, Config),
+    assert_presence(Pres, Name),
+
+    leave(Alice),
+    close(Alice).
 
 
 check_join_twice(Config) ->
@@ -149,6 +162,17 @@ check_send_control(Config) ->
 
     Msg = <<"\\hello">>,
     say(Alice, Msg),
+    assert_timeout(Alice, Config).
+
+
+check_send_malformed(Config)->
+    Alice = ?value(alice, Config),
+
+    gen_tcp:send(Alice, encode({random, 1234})),
+    assert_timeout(Alice, Config),
+
+    BinaryMsg = <<1, 2, 3, 4, 5>>,
+    gen_tcp:send(Alice, BinaryMsg),
     assert_timeout(Alice, Config).
 
 

@@ -72,9 +72,14 @@ handle_cast({recv, closed_socket}, State) ->
     handle_action(Msg, State),
     {stop, normal, State};
 handle_cast({recv, BinaryMsg}, State) ->
-    Msg = decode(BinaryMsg),
-    NewState = handle_action(Msg, State),
-    {noreply, NewState};
+    try decode(BinaryMsg) of
+        Msg ->
+            NewState = handle_action(Msg, State),
+            {noreply, NewState}
+    catch
+        error:badarg ->
+            {noreply, State}
+    end;
 handle_cast({send, Msg}, State) ->
     send_message(Msg, State),
     {noreply, State};
@@ -87,6 +92,11 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 -spec terminate(Reason :: any(), state()) -> ok.
+terminate(_Reason, State = #state{client_state = joined}) ->
+    %% in case of an internal error, remove client from chat manually
+    Msg = {leave},
+    handle_action(Msg, State),
+    ok;
 terminate(_Reason, _State) ->
     ok.
 
@@ -130,7 +140,11 @@ handle_action({say, _Msg}, State = #state{client_state = connected}) ->
     send_message({error, user_has_not_joined}, State);
 handle_action({say, Msg}, State) ->
     chat_server:say(State#state.client_name, Msg),
+    State;
+handle_action(_Other, State) ->
+    %% ignore
     State.
+
 
 -spec send_message(message(), state()) -> ok | {error, Reason :: any()}.
 send_message(Message, State) ->

@@ -26,8 +26,8 @@ start_link(Port) ->
 %% ===================================================================
 init([Port]) ->
     RestartStrategy = rest_for_one,
-    MaxRestarts = 5,
-    MaxSecondsBetweenRestarts = 10,
+    MaxRestarts = 50,
+    MaxSecondsBetweenRestarts = 100,
 
     SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
 
