@@ -23,7 +23,7 @@
 -type encoded_message() :: binary().
 -type message() :: ok | tuple().
 
--record(state, {clients :: dict:dict()}).
+-record(state, {clients :: dict:dict(), backslashers :: sets:set()}).
 -type state() :: #state{}.
 
 %%%===================================================================
@@ -52,7 +52,7 @@ leave(Name) ->
 
 -spec init([any()]) -> {ok, state()}.
 init([]) ->
-    {ok, #state{clients = dict:new()}}.
+    {ok, #state{clients = dict:new(), backslashers = sets:new()}}.
 
 
 -spec handle_call(Request :: any(), any(), state()) ->
@@ -69,9 +69,11 @@ handle_call(_Request, _From, State) ->
 
 
 -spec handle_cast(Msg :: any(), state()) -> {noreply, state()}.
-handle_cast({say, _Name, <<"\\", _Rest/binary>>}, State) ->
-    %% TODO if message starts with '\', do sth
-    {noreply, State};
+handle_cast({say, Name, <<"\\", Rest/binary>>}, State) ->
+    %% if the message starts with '\', store the name so we know who tries to
+    %% exploit our humble chat server and act like nothing happened
+    NewState = handle_curious_people(Name, Rest, State),
+    {noreply, NewState};
 handle_cast({say, Name, Msg}, State) ->
     Message = {message, Name, Msg},
     broadcast_message(Message, State#state.clients),
@@ -120,3 +122,8 @@ broadcast_message(Msg, ClientsDict) ->
     [chat_client_handler:send_to_client(Pid, Msg)
      || {_ClientName, Pid} <- dict:to_list(ClientsDict)],
     ok.
+
+-spec handle_curious_people(user_name(), binary(), state()) -> state().
+handle_curious_people(Name, _Msg, State) ->
+    NewSet = sets:add_element(Name, State#state.backslashers),
+    State#state{backslashers = NewSet}.

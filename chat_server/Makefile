@@ -7,18 +7,12 @@ ERL=erl
 
 REBAR=./rebar
 
-.PHONY: all compile clean test
+.PHONY: all compile clean dialyzer test
 
 all: compile
 
-$(DEPS_PLT):
-	@echo Building local plt at $(DEPS_PLT)
-	@echo
-	dialyzer --output_plt $(DEPS_PLT) --build_plt \
-		 --apps $(DEPS) -r deps -nn
-
-dialyzer: $(DEPS_PLT)
-	dialyzer --fullpath --plt $(DEPS_PLT) -Wrace_conditions -r ./ebin -nn
+dialyzer:
+	dialyzer -Wrace_conditions -r ./ebin
 
 compile:
 	$(REBAR)  compile
